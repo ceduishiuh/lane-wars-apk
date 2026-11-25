@@ -42,13 +42,17 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept licenses & install SDK 35
+      - name: Configure Android SDK & Licenses
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDK_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "Using Android SDK at: $SDK_DIR"
+          mkdir -p "$SDK_DIR/licenses"
+          for h in 8933bad161af4178b1185d1a37fbf41ea5269c55 d56f5187479451eabf01fb78af6dfcb131a6481e 24333f8a63b6825ea9c5514f83c2829b004d1fee; do
+            grep -qxF "$h" "$SDK_DIR/licenses/android-sdk-license" 2>/dev/null || echo "$h" >> "$SDK_DIR/licenses/android-sdk-license"
+          done
+          grep -qxF "84831b9409646a918e30573bab4c9c91346d8abd" "$SDK_DIR/licenses/android-sdk-preview-license" 2>/dev/null || echo "84831b9409646a918e30573bab4c9c91346d8abd" >> "$SDK_DIR/licenses/android-sdk-preview-license"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
