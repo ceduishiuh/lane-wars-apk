@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Assemble Pixel Lane MOBA APK
+    name: Assemble Lane Wars APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -24,23 +24,128 @@ jobs:
         with:
           gradle-version: 8.7
 
-      - name: Find Android project
-        id: find
+      - name: Generate Android project from the zip
         run: |
-          F=$(find . -name "settings.gradle*" -not -path "*/node_modules/*" | head -1)
-          if [ -z "$F" ]; then
-            echo "No settings.gradle found. Files in repo:"
-            find . -maxdepth 3 -not -path "./.git/*" | head -60
-            exit 1
-          fi
-          echo "dir=$(dirname "$F")" >> "$GITHUB_OUTPUT"
+          set -e
+          unzip -q lane-wars-5v5-map-update.zip -d pkg
+          P=android-build
+          mkdir -p $P/app/src/main/java/com/lanewars/fivev5 $P/app/src/main/assets
+          cp pkg/app/src/main/assets/* $P/app/src/main/assets/
+          echo "sdk.dir=$ANDROID_HOME" > $P/local.properties
+          echo "org.gradle.jvmargs=-Xmx2g" > $P/gradle.properties
+
+          cat > $P/settings.gradle <<'EOF'
+          pluginManagement {
+            repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+            repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "LaneWars"
+          include ':app'
+          EOF
+
+          cat > $P/build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF
+
+          cat > $P/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.lanewars.fivev5'
+            compileSdk 34
+            defaultConfig {
+              applicationId 'com.lanewars.fivev5'
+              minSdk 24
+              targetSdk 34
+              versionCode 1
+              versionName '1.0'
+            }
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_17
+              targetCompatibility JavaVersion.VERSION_17
+            }
+          }
+          EOF
+
+          cat > $P/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <application
+                android:label="Lane Wars 5v5"
+                android:allowBackup="true"
+                android:hardwareAccelerated="true"
+                android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+              <activity
+                  android:name=".MainActivity"
+                  android:exported="true"
+                  android:screenOrientation="sensorLandscape"
+                  android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|density|uiMode">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat > $P/app/src/main/java/com/lanewars/fivev5/MainActivity.java <<'EOF'
+          package com.lanewars.fivev5;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.WindowManager;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+            private WebView web;
+
+            @Override
+            protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+              web = new WebView(this);
+              WebSettings s = web.getSettings();
+              s.setJavaScriptEnabled(true);
+              s.setDomStorageEnabled(true);
+              s.setAllowFileAccess(true);
+              s.setMediaPlaybackRequiresUserGesture(false);
+              web.setWebViewClient(new WebViewClient());
+              setContentView(web);
+              hideBars();
+              web.loadUrl("file:///android_asset/index.html");
+            }
+
+            private void hideBars() {
+              getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            }
+
+            @Override
+            public void onWindowFocusChanged(boolean f) {
+              super.onWindowFocusChanged(f);
+              if (f) hideBars();
+            }
+          }
+          EOF
 
       - name: Build Debug APK (Installable Offline)
-        working-directory: ${{ steps.find.outputs.dir }}
+        working-directory: android-build
         run: gradle assembleDebug --no-daemon
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: "**/build/outputs/apk/debug/*.apk"
+          path: android-build/app/build/outputs/apk/debug/app-debug.apk
