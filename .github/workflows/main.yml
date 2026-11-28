@@ -24,13 +24,28 @@ jobs:
         with:
           gradle-version: 8.7
 
-      - name: Generate Android project from the zip
+      - name: Generate Android project
         run: |
           set -e
-          unzip -q lane-wars-5v5-map-update.zip -d pkg
+          # Find the game files: use the newest lane-wars*.zip in the repo (any name), else the app/ folder in the repo
+          Z=$(ls -t lane-wars*.zip 2>/dev/null | head -n1 || true)
+          if [ -n "$Z" ]; then
+            echo "Using zip: $Z"
+            unzip -q "$Z" -d pkg
+          elif [ -d app/src/main/assets ]; then
+            echo "Using app/ folder from repo"
+            mkdir -p pkg
+            cp -r app pkg/app
+            [ -d android-icons ] && cp -r android-icons pkg/android-icons || true
+          else
+            echo "ERROR: no lane-wars*.zip and no app/src/main/assets folder found in repo root"
+            ls -la
+            exit 1
+          fi
+
           P=android-build
           mkdir -p $P/app/src/main/java/com/lanewars/fivev5 $P/app/src/main/assets
-          cp pkg/app/src/main/assets/* $P/app/src/main/assets/
+          cp -r pkg/app/src/main/assets/* $P/app/src/main/assets/
           echo "sdk.dir=$ANDROID_HOME" > $P/local.properties
           echo "org.gradle.jvmargs=-Xmx2g" > $P/gradle.properties
 
@@ -91,6 +106,14 @@ jobs:
             </application>
           </manifest>
           EOF
+
+          # App launcher icon (the game logo), if the icons folder is included
+          if [ -d pkg/android-icons/res ]; then
+            echo "Adding launcher icons"
+            mkdir -p $P/app/src/main/res
+            cp -r pkg/android-icons/res/* $P/app/src/main/res/
+            sed -i 's|android:allowBackup="true"|android:allowBackup="true" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"|' $P/app/src/main/AndroidManifest.xml
+          fi
 
           cat > $P/app/src/main/java/com/lanewars/fivev5/MainActivity.java <<'EOF'
           package com.lanewars.fivev5;
